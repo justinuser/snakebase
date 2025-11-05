@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Base Snake Mini App</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+:root {
+    --base-color: #1e90ff;
+    --bg-color: #ffffff;
+    --coin-color: #ffcc00;
+    --wall-color: #1a75ff;
+}
+html, body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Press Start 2P', cursive;
+    background-color: var(--bg-color);
+    color: var(--base-color);
+    overflow: hidden;
+}
+
+/* Step 1: BUILD A BASE */
+#base-screen {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    font-size: 3em;
+    text-align: center;
+    color: var(--base-color);
+}
+
+/* Step 2: Loading snake */
+#loading-screen {
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+}
+.snake-loader {
+    display: flex;
+    gap: 5px;
+}
+.snake-block {
+    width: 20px;
+    height: 20px;
+    background-color: var(--base-color);
+    animation: blink 1s infinite alternate;
+}
+@keyframes blink {
+    from {opacity: 0.3;}
+    to {opacity: 1;}
+}
+
+/* Step 3: Main Menu */
+#main-menu {
+    display: none;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    position: relative;
+}
+#main-menu button {
+    padding: 15px 30px;
+    margin: 10px;
+    background-color: var(--base-color);
+    color: white;
+    border: none;
+    cursor: pointer;
+    font-size: 1em;
+    border-radius: 5px;
+    min-width: 180px;
+}
+#wallet-btn {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    padding: 10px 15px;
+}
+
+/* Step 4: Game Screen */
+#game-screen {
+    display: none;
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    background-color: var(--bg-color);
+}
+#game-canvas {
+    display: block;
+    margin: auto;
+    background-color: #f0f8ff;
+    border: 5px solid var(--wall-color);
+}
+#game-controls {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 10px;
+}
+#game-controls button {
+    padding: 5px 10px;
+    background-color: var(--base-color);
+    color: white;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: 'Press Start 2P', cursive;
+}
+</style>
+</head>
+<body>
+
+<!-- Step 1: BUILD A BASE -->
+<div id="base-screen">BUILD A BASE</div>
+
+<!-- Step 2: Loading snake -->
+<div id="loading-screen">
+    <div class="snake-loader">
+        <div class="snake-block"></div>
+        <div class="snake-block"></div>
+        <div class="snake-block"></div>
+        <div class="snake-block"></div>
+    </div>
+    <h2>Loading...</h2>
+</div>
+
+<!-- Step 3: Main Menu -->
+<div id="main-menu">
+    <button id="start-btn">START</button>
+    <button id="bestscore-btn">BEST SCORE</button>
+    <button id="tutorial-btn">TUTORIAL</button>
+    <button id="wallet-btn">Connect Wallet</button>
+</div>
+
+<!-- Step 4: Game Screen -->
+<div id="game-screen">
+    <canvas id="game-canvas" width="400" height="400"></canvas>
+    <div id="game-controls">
+        <button id="retry-btn">RETRY</button>
+        <button id="pause-btn">PAUSE</button>
+        <button id="back-btn">BACK</button>
+    </div>
+</div>
+
+<script>
+const baseScreen = document.getElementById('base-screen');
+const loadingScreen = document.getElementById('loading-screen');
+const mainMenu = document.getElementById('main-menu');
+const gameScreen = document.getElementById('game-screen');
+
+// ---- Screen transitions ----
+setTimeout(()=>{
+    baseScreen.style.display='none';
+    loadingScreen.style.display='flex';
+    setTimeout(()=>{
+        loadingScreen.style.display='none';
+        mainMenu.style.display='flex';
+    },2000);
+},1500);
+
+// ---- Wallet Button ----
+const walletBtn = document.getElementById('wallet-btn');
+walletBtn.addEventListener('click', async ()=>{
+    if(window.ethereum){
+        try{
+            const accounts = await window.ethereum.request({method:'eth_requestAccounts'});
+            walletBtn.innerText='Connected';
+            console.log('Connected:', accounts[0]);
+        }catch(e){ alert('Connection rejected'); }
+    }else{ alert('MetaMask not detected'); }
+});
+
+// ---- Main Menu Buttons ----
+document.getElementById('start-btn').addEventListener('click', ()=>{
+    mainMenu.style.display='none';
+    gameScreen.style.display='block';
+    startGame();
+});
+document.getElementById('tutorial-btn').addEventListener('click', ()=>alert('Use Arrow keys or W/A/S/D to move. Swipe for mobile. Eat BaseCoins. Avoid walls.'));
+document.getElementById('bestscore-btn').addEventListener('click', ()=>alert('Best Score coming soon!'));
+
+// ---- Game Logic ----
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+const gridSize = 20;
+const tileCount = canvas.width/gridSize;
+let snake = [{x:10,y:10}];
+let velocity = {x:0,y:0};
+let baseCoin = {x:15,y:15};
+let gameInterval;
+let paused=false;
+let started=false;
+
+const coinImg = new Image();
+coinImg.src='basecoin.png';
+
+// ---- Touch support ----
+let touchStartX=0, touchStartY=0;
+canvas.addEventListener('touchstart', e=>{
+    const t = e.touches[0];
+    touchStartX = t.clientX;
+    touchStartY = t.clientY;
+});
+canvas.addEventListener('touchend', e=>{
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchStartX;
+    const dy = t.clientY - touchStartY;
+    if(Math.abs(dx)>Math.abs(dy)){
+        if(dx>0 && velocity.x!==-1) velocity={x:1,y:0};
+        else if(dx<0 && velocity.x!==1) velocity={x:-1,y:0};
+    }else{
+        if(dy>0 && velocity.y!==-1) velocity={x:0,y:1};
+        else if(dy<0 && velocity.y!==1) velocity={x:0,y:-1};
+    }
+    started=true;
+});
+
+function startGame(){
+    snake=[{x:10,y:10}];
+    velocity={x:0,y:0};
+    spawnCoin();
+    started=false;
+    clearInterval(gameInterval);
+    gameInterval = setInterval(gameLoop,150);
+}
+
+function gameLoop(){
+    if(paused || !started) return;
+    const head={x:snake[0].x+velocity.x, y:snake[0].y+velocity.y};
+    snake.unshift(head);
+
+    // collision with walls
+    if(head.x<0 || head.x>=tileCount || head.y<0 || head.y>=tileCount || collision()){
+        clearInterval(gameInterval);
+        alert('Game Over!');
+        return;
+    }
+
+    // eat coin
+    if(head.x===baseCoin.x && head.y===baseCoin.y){
+        spawnCoin();
+    }else snake.pop();
+
+    drawGame();
+}
+
+function collision(){
+    for(let i=1;i<snake.length;i++){
+        if(snake[i].x===snake[0].x && snake[i].y===snake[0].y) return true;
+    }
+    return false;
+}
+
+function spawnCoin(){
+    baseCoin.x=Math.floor(Math.random()*tileCount);
+    baseCoin.y=Math.floor(Math.random()*tileCount);
+}
+
+function drawGame(){
+    ctx.fillStyle='#f0f8ff';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    // walls
+    ctx.strokeStyle='var(--wall-color)';
+    ctx.lineWidth=5;
+    ctx.strokeRect(0,0,canvas.width,canvas.height);
+
+    // BaseCoin
+    ctx.drawImage(coinImg, baseCoin.x*gridSize, baseCoin.y*gridSize, gridSize, gridSize);
+
+    // snake with eyes
+    snake.forEach((seg,index)=>{
+        ctx.fillStyle='var(--base-color)';
+        ctx.fillRect(seg.x*gridSize, seg.y*gridSize, gridSize, gridSize);
+        if(index===0){
+            ctx.fillStyle='black';
+            const e=gridSize/5;
+            ctx.fillRect(seg.x*gridSize+e, seg.y*gridSize+e, e, e);
+            ctx.fillRect(seg
